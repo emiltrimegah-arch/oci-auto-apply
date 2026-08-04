@@ -1,0 +1,48 @@
+name: Oracle Cloud Auto Provisioner
+
+on:
+  schedule:
+    # Berjalan otomatis setiap 15 menit
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Agar bisa ditarik/dijalankan manual via tombol
+
+jobs:
+  apply-oci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup OCI CLI
+        uses: oracle-actions/setup-oci-cli@v1.3.2
+        with:
+          user: ${{ secrets.OCI_USER }}
+          tenancy: ${{ secrets.OCI_TENANCY }}
+          fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          region: ${{ secrets.OCI_REGION }}
+          api_key: ${{ secrets.OCI_KEY_CONTENT }}
+
+      - name: Run Auto Apply Loop
+        run: |
+          STACK_ID="${{ secrets.OCI_STACK_ID }}"
+          echo "🚀 Memulai percobaan auto-apply via GitHub Actions..."
+
+          # Jalan berulang-ulang selama 10 menit di dalam runner ini
+          END_TIME=$(($(date +%s) + 600))
+
+          while [ $(date +%s) -lt $END_TIME ]; do
+            echo "--------------------------------------------------"
+            echo "⏱️ [$(date '+%Y-%m-%d %H:%M:%S')] Mengirim job apply baru..."
+
+            JOB_OUTPUT=$(oci resource-manager job create-apply-job \
+              --stack-id "$STACK_ID" \
+              --execution-plan-strategy "AUTO_APPROVED" \
+              --output json 2>&1)
+
+            if echo "$JOB_OUTPUT" | grep -q '"lifecycle-state": "ACCEPTED"'; then
+              echo "✅ Job berhasil dikirim ke OCI. Menunggu 30 detik..."
+              sleep 30
+            else
+              echo "⚠️ Gagal membuat job request."
+            fi
+
+            echo "🔄 Percobaan berikutnya dalam 2 menit..."
+            sleep 120
+          done
