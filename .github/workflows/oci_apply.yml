@@ -2,16 +2,16 @@ name: Oracle Cloud Auto Provisioner
 
 on:
   schedule:
-    # Berjalan otomatis setiap 15 menit
     - cron: '*/15 * * * *'
-  workflow_dispatch: # Memungkinkan tombol 'Run workflow' manual
+  workflow_dispatch:
 
 jobs:
   apply-oci:
     runs-on: ubuntu-latest
     steps:
-      - name: Install OCI CLI
+      - name: Install OCI CLI & jq
         run: |
+          sudo apt-get install -y jq
           python -m pip install --upgrade pip
           pip install oci-cli
 
@@ -35,7 +35,6 @@ jobs:
           STACK_ID="${{ secrets.OCI_STACK_ID }}"
           echo "🚀 Memulai percobaan auto-apply via GitHub Actions..."
 
-          # Jalan berulang-ulang selama 10 menit di dalam runner ini
           END_TIME=$(($(date +%s) + 600))
 
           while [ $(date +%s) -lt $END_TIME ]; do
@@ -47,13 +46,29 @@ jobs:
               --execution-plan-strategy "AUTO_APPROVED" \
               --output json 2>&1)
 
-            if echo "$JOB_OUTPUT" | grep -q '"lifecycle-state": "ACCEPTED"'; then
-              echo "✅ Job berhasil dikirim ke OCI. Menunggu 30 detik..."
-              sleep 30
+            JOB_ID=$(echo "$JOB_OUTPUT" | jq -r '.data.id // empty')
+
+            if [ -n "$JOB_ID" ]; then
+              echo "✅ Job diterima OCI (ID: $JOB_ID). Menunggu proses eksekusi (45 detik)..."
+              sleep 45
+
+              # Cek status akhir Job
+              JOB_STATUS=$(oci resource-manager job get --job-id "$JOB_ID" --query "data.\"lifecycle-state\"" --raw-output 2>&1)
+              echo "📌 Status Akhir Job di Oracle: $JOB_STATUS"
+
+              if [ "$JOB_STATUS" == "SUCCEEDED" ]; then
+                echo "🎉 SELESAI! Server berhasil dibuat!"
+                exit 0
+              else
+                echo "📋 --- PESAN EROR DARI ORACLE ---"
+                # Ambil dan cetak 12 baris terakhir dari log resmi Oracle
+                oci resource-manager job get-job-logs-content --job-id "$JOB_ID" --file - 2>&1 | tail -n 12
+                echo "---------------------------------"
+              fi
             else
-              echo "⚠️ Gagal/Respon OCI: $JOB_OUTPUT"
+              echo "⚠️ Gagal membuat job request: $JOB_OUTPUT"
             fi
 
-            echo "🔄 Percobaan berikutnya dalam 2 menit..."
-            sleep 120
+            echo "🔄 Percobaan berikutnya dalam 1 menit..."
+            sleep 60
           done
