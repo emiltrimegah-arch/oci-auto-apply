@@ -6,8 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  # Mengambil nilai dari Repository Variable di Settings (jika kosong, otomatis default ke 2)
-  INTERVAL_MINUTES: ${{ vars.INTERVAL_MINUTES || '2' }}
+  INTERVAL_MINUTES: ${{ vars.INTERVAL_MINUTES || '5' }}
   SUPPRESS_LABEL_WARNING: "True"
   OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
 
@@ -70,9 +69,10 @@ jobs:
                 echo "🎉 SELESAI! Server berhasil dibuat!"
                 exit 0
               else
-                echo "📋 --- PESAN EROR DARI ORACLE ---"
-                oci resource-manager job get-job-logs-content --job-id "$JOB_ID" --file - 2>&1 | tail -n 12 || echo "Gagal mengambil log."
-                echo "---------------------------------"
+                echo "📋 --- PESAN EROR RESMI DARI ORACLE ---"
+                # Menghapus parameter --file agar log tercetak dengan benar
+                oci resource-manager job get-job-logs-content --job-id "$JOB_ID" 2>&1 | tail -n 15 || echo "Gagal mengambil log."
+                echo "---------------------------------------"
               fi
             else
               echo "⚠️ Respon langsung OCI:"
