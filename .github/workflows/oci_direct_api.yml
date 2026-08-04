@@ -69,6 +69,7 @@ jobs:
               exit 0
             elif echo "$RAW_OUTPUT" | grep -q -i "capacity"; then
               echo "📌 Status: Out of capacity (Kapasitas ARM masih penuh)."
+              echo "$RAW_OUTPUT"
             else
               echo "📋 Respon dari Oracle:"
               echo "$RAW_OUTPUT"
