@@ -9,9 +9,8 @@ jobs:
   apply-oci:
     runs-on: ubuntu-latest
     steps:
-      - name: Install OCI CLI & jq
+      - name: Install OCI CLI
         run: |
-          sudo apt-get install -y jq
           python -m pip install --upgrade pip
           pip install oci-cli
 
@@ -41,19 +40,20 @@ jobs:
             echo "--------------------------------------------------"
             echo "⏱️ [$(date '+%Y-%m-%d %H:%M:%S')] Mengirim job apply baru..."
 
-            JOB_OUTPUT=$(oci resource-manager job create-apply-job \
+            # Ambil Job ID secara langsung menggunakan filter bawaan OCI
+            JOB_ID=$(oci resource-manager job create-apply-job \
               --stack-id "$STACK_ID" \
               --execution-plan-strategy "AUTO_APPROVED" \
-              --output json 2>&1)
+              --query "data.id" \
+              --raw-output 2>&1 || true)
 
-            JOB_ID=$(echo "$JOB_OUTPUT" | jq -r '.data.id // empty')
-
-            if [ -n "$JOB_ID" ]; then
+            # Cek apakah JOB_ID valid (diawali dengan ocid1.ormjob)
+            if [[ "$JOB_ID" == ocid1.ormjob* ]]; then
               echo "✅ Job diterima OCI (ID: $JOB_ID). Menunggu proses eksekusi (45 detik)..."
               sleep 45
 
               # Cek status akhir Job
-              JOB_STATUS=$(oci resource-manager job get --job-id "$JOB_ID" --query "data.\"lifecycle-state\"" --raw-output 2>&1)
+              JOB_STATUS=$(oci resource-manager job get --job-id "$JOB_ID" --query "data.\"lifecycle-state\"" --raw-output 2>&1 || echo "UNKNOWN")
               echo "📌 Status Akhir Job di Oracle: $JOB_STATUS"
 
               if [ "$JOB_STATUS" == "SUCCEEDED" ]; then
@@ -61,12 +61,12 @@ jobs:
                 exit 0
               else
                 echo "📋 --- PESAN EROR DARI ORACLE ---"
-                # Ambil dan cetak 12 baris terakhir dari log resmi Oracle
-                oci resource-manager job get-job-logs-content --job-id "$JOB_ID" --file - 2>&1 | tail -n 12
+                oci resource-manager job get-job-logs-content --job-id "$JOB_ID" --file - 2>&1 | tail -n 12 || echo "Gagal mengambil log."
                 echo "---------------------------------"
               fi
             else
-              echo "⚠️ Gagal membuat job request: $JOB_OUTPUT"
+              echo "⚠️ Gagal/Respon langsung OCI:"
+              echo "$JOB_ID"
             fi
 
             echo "🔄 Percobaan berikutnya dalam 1 menit..."
