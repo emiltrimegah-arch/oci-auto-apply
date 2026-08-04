@@ -1,0 +1,69 @@
+name: Oracle Cloud Auto Provisioner (Direct API)
+
+on:
+  schedule:
+    # Berjalan agresif setiap 2 menit (Bebas TooManyRequests)
+    - cron: '*/2 * * * *'
+  workflow_dispatch:
+
+env:
+  SUPPRESS_LABEL_WARNING: "True"
+  OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
+
+jobs:
+  launch-instance:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install OCI CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install oci-cli
+
+      - name: Configure OCI CLI Credentials
+        run: |
+          mkdir -p ~/.oci
+          echo "${{ secrets.OCI_KEY_CONTENT }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+
+          cat <<EOF > ~/.oci/config
+          [DEFAULT]
+          user=${{ secrets.OCI_USER }}
+          fingerprint=${{ secrets.OCI_FINGERPRINT }}
+          key_file=~/.oci/oci_api_key.pem
+          tenancy=${{ secrets.OCI_TENANCY }}
+          region=ap-singapore-2
+          EOF
+
+          chmod 600 ~/.oci/config
+
+      - name: Direct API Instance Launch
+        run: |
+          echo "🚀 [$(date '+%Y-%m-%d %H:%M:%S')] Mengirim request pembuatan instance via Direct API..."
+
+          # Menyiapkan file Public Key SSH
+          cat <<'EOF' > ~/.oci/id_rsa.pub
+          ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDbumFzoc3m2mPs8tNFWCbb59SwiveTN8qhPv0XOy2hy5zCBk3Q15OXLFbnTpDrJ2eiuHfR/dezbh9+cgksDTB5Rx6hZGzhuOVa4MMghZzNUVqfWMCYqBq9P40ls0W/MQIdXnrX+QJvLcBNJgKIJh+ckhFP+NbZP4ss4tNZCz90/OZo+5RqwbzKvoq2S0GWD/0xM4Sg4D8Zd3uQe6gNcvKuQO1nMXmN+3taef63yl7JHEElUtpSsgvNQg+6qRCb7LUtXP4q0GWGEkshN24hg+bS0oM8ZFj5TNPrOPlDP582fsRDlLjaGqFl4BZA9n4ndVW5q2nANIYQMJfqcSMUKj5s1VD+19aofrOs+a+8fNjtYcFT6SWH4YzSGod+35mT1Jq0CeApkw+wyyzfLvh1yNcV/0ii7bYQ2lQdR2gma76r1GxXAR9uLsElEYBTLj1+7pwuVIFgzAesk1bUcqOExiqh4r1Kwblbye7h04JLJ4QFKTDaLVsMnPWK/ij4yCZfgeyuYNkdW31HpWliR/F0gNWfAyjqA0qFeUaAsy/htwjk6C1vMyINlfMwYFTSjm9Ekq656L6a1pNS2tXJ+3H2ayqzgm/YeIM2t+Y5OOxyNgG4Ocwi9IRUpB1eR4Yja4zu75/qBzBeQN5cgIh93m1X4JM2f7L3bk1NWAelhEXbfpaJYw== emilia.khouw@trimegah.com
+          EOF
+
+          RAW_OUTPUT=$(oci compute instance launch \
+            --compartment-id "ocid1.tenancy.oc1..aaaaaaaatv23g2vqcmzwfsqhzeq7kc7gk2ht3whgi6mvzctjgvqdq3bg56ra" \
+            --availability-domain "imzS:AP-SINGAPORE-2-AD-1" \
+            --shape "VM.Standard.A1.Flex" \
+            --shape-config '{"ocpus":4,"memory_in_gbs":24}' \
+            --display-name "instance-ARM-4Core-24GB" \
+            --image-id "ocid1.image.oc1.ap-singapore-2.aaaaaaaavqsvyxvzsvgonjp6bydc5xdyo2ailv7sxlzjvbnbrh3mtepdujyq" \
+            --subnet-id "ocid1.subnet.oc1.ap-singapore-2.aaaaaaaa6cmiefetmrnd3j72l3pgxrfbf4vjwnw3yefh5vjgsjyvwow3ckua" \
+            --ssh-authorized-keys-file ~/.oci/id_rsa.pub \
+            --assign-public-ip true \
+            2>&1 || true)
+
+          if echo "$RAW_OUTPUT" | grep -q '"lifecycle-state": "PROVISIONING"'; then
+            echo "🎉 SELESAI! Server BERHASIL dibuat dan sedang dinyalakan oleh Oracle!"
+            exit 0
+          elif echo "$RAW_OUTPUT" | grep -q -i "Out of capacity"; then
+            echo "📌 Status Akhir: Out of capacity (Kapasitas ARM masih penuh). Otomatis coba lagi 2 menit lagi..."
+          else
+            echo "📋 Respon dari Oracle:"
+            echo "$RAW_OUTPUT"
+          fi
