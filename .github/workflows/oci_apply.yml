@@ -5,12 +5,15 @@ on:
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
+env:
+  # Mengambil nilai dari Repository Variable di Settings (jika kosong, otomatis default ke 2)
+  INTERVAL_MINUTES: ${{ vars.INTERVAL_MINUTES || '2' }}
+  SUPPRESS_LABEL_WARNING: "True"
+  OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
+
 jobs:
   apply-oci:
     runs-on: ubuntu-latest
-    env:
-      SUPPRESS_LABEL_WARNING: "True"
-      OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
 
     steps:
       - name: Install OCI CLI
@@ -38,7 +41,9 @@ jobs:
       - name: Run Auto Apply Loop
         run: |
           STACK_ID="${{ secrets.OCI_STACK_ID }}"
-          echo "🚀 Memulai percobaan auto-apply via GitHub Actions..."
+          SLEEP_SECONDS=$((INTERVAL_MINUTES * 60))
+
+          echo "🚀 Memulai auto-apply (Set jeda: ${INTERVAL_MINUTES} menit dari Variables)..."
 
           END_TIME=$(($(date +%s) + 600))
 
@@ -46,21 +51,18 @@ jobs:
             echo "--------------------------------------------------"
             echo "⏱️ [$(date '+%Y-%m-%d %H:%M:%S')] Mengirim job apply baru..."
 
-            # Ambil respon dari OCI CLI
             RAW_OUTPUT=$(oci resource-manager job create-apply-job \
               --stack-id "$STACK_ID" \
               --execution-plan-strategy "AUTO_APPROVED" \
               --query "data.id" \
               --raw-output 2>&1 || true)
 
-            # Ekstrak ID Job secara bersih (mengabaikan teks warning)
             JOB_ID=$(echo "$RAW_OUTPUT" | grep -o 'ocid1\.ormjob\.[^[:space:]"]*' | head -n 1)
 
             if [ -n "$JOB_ID" ]; then
               echo "✅ Job diterima OCI (ID: $JOB_ID). Menunggu proses eksekusi (45 detik)..."
               sleep 45
 
-              # Cek status akhir Job
               JOB_STATUS=$(oci resource-manager job get --job-id "$JOB_ID" --query "data.\"lifecycle-state\"" --raw-output 2>&1 | grep -v "WARNING" | xargs || echo "UNKNOWN")
               echo "📌 Status Akhir Job di Oracle: $JOB_STATUS"
 
@@ -72,11 +74,13 @@ jobs:
                 oci resource-manager job get-job-logs-content --job-id "$JOB_ID" --file - 2>&1 | tail -n 12 || echo "Gagal mengambil log."
                 echo "---------------------------------"
               fi
+            elif echo "$RAW_OUTPUT" | grep -q "TooManyRequests"; then
+              echo "⚠️ Kena Rate Limit (TooManyRequests). Istirahat sebentar agar API Oracle adem..."
             else
               echo "⚠️ Respon langsung OCI:"
               echo "$RAW_OUTPUT"
             fi
 
-            echo "🔄 Percobaan berikutnya dalam 1 menit..."
-            sleep 60
+            echo "🔄 Istirahat ${INTERVAL_MINUTES} menit (${SLEEP_SECONDS} detik) sebelum percobaan berikutnya..."
+            sleep $SLEEP_SECONDS
           done
