@@ -74,8 +74,6 @@ jobs:
                 oci resource-manager job get-job-logs-content --job-id "$JOB_ID" --file - 2>&1 | tail -n 12 || echo "Gagal mengambil log."
                 echo "---------------------------------"
               fi
-            elif echo "$RAW_OUTPUT" | grep -q "TooManyRequests"; then
-              echo "⚠️ Kena Rate Limit (TooManyRequests). Istirahat sebentar agar API Oracle adem..."
             else
               echo "⚠️ Respon langsung OCI:"
               echo "$RAW_OUTPUT"
