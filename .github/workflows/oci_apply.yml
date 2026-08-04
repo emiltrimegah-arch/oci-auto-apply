@@ -8,6 +8,10 @@ on:
 jobs:
   apply-oci:
     runs-on: ubuntu-latest
+    env:
+      SUPPRESS_LABEL_WARNING: "True"
+      OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
+
     steps:
       - name: Install OCI CLI
         run: |
@@ -29,6 +33,8 @@ jobs:
           region=${{ secrets.OCI_REGION }}
           EOF
 
+          chmod 600 ~/.oci/config
+
       - name: Run Auto Apply Loop
         run: |
           STACK_ID="${{ secrets.OCI_STACK_ID }}"
@@ -40,20 +46,22 @@ jobs:
             echo "--------------------------------------------------"
             echo "⏱️ [$(date '+%Y-%m-%d %H:%M:%S')] Mengirim job apply baru..."
 
-            # Ambil Job ID secara langsung menggunakan filter bawaan OCI
-            JOB_ID=$(oci resource-manager job create-apply-job \
+            # Ambil respon dari OCI CLI
+            RAW_OUTPUT=$(oci resource-manager job create-apply-job \
               --stack-id "$STACK_ID" \
               --execution-plan-strategy "AUTO_APPROVED" \
               --query "data.id" \
               --raw-output 2>&1 || true)
 
-            # Cek apakah JOB_ID valid (diawali dengan ocid1.ormjob)
-            if [[ "$JOB_ID" == ocid1.ormjob* ]]; then
+            # Ekstrak ID Job secara bersih (mengabaikan teks warning)
+            JOB_ID=$(echo "$RAW_OUTPUT" | grep -o 'ocid1\.ormjob\.[^[:space:]"]*' | head -n 1)
+
+            if [ -n "$JOB_ID" ]; then
               echo "✅ Job diterima OCI (ID: $JOB_ID). Menunggu proses eksekusi (45 detik)..."
               sleep 45
 
               # Cek status akhir Job
-              JOB_STATUS=$(oci resource-manager job get --job-id "$JOB_ID" --query "data.\"lifecycle-state\"" --raw-output 2>&1 || echo "UNKNOWN")
+              JOB_STATUS=$(oci resource-manager job get --job-id "$JOB_ID" --query "data.\"lifecycle-state\"" --raw-output 2>&1 | grep -v "WARNING" | xargs || echo "UNKNOWN")
               echo "📌 Status Akhir Job di Oracle: $JOB_STATUS"
 
               if [ "$JOB_STATUS" == "SUCCEEDED" ]; then
@@ -65,8 +73,8 @@ jobs:
                 echo "---------------------------------"
               fi
             else
-              echo "⚠️ Gagal/Respon langsung OCI:"
-              echo "$JOB_ID"
+              echo "⚠️ Respon langsung OCI:"
+              echo "$RAW_OUTPUT"
             fi
 
             echo "🔄 Percobaan berikutnya dalam 1 menit..."
