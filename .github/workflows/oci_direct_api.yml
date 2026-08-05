@@ -18,14 +18,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step ini WAJIB ada agar folder .git terunduh dan perintah gh tidak error
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Install OCI CLI
         run: |
-          python -m pip install --upgrade pip
-          pip install oci-cli
+          python -m pip install --upgrade pip --quiet
+          pip install oci-cli --quiet
 
       - name: Configure OCI CLI Credentials
         run: |
